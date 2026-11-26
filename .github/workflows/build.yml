@@ -9,7 +9,7 @@ on:
   workflow_dispatch:
     inputs:
       sqrl_image:
-        description: "Full SQRL CLI image reference (e.g. ghcr.io/datasqrl/cmd:pr-123 or datasqrl/cmd:dev). When set, overrides sqrl.Dockerfile and skips Docker Hub publishing."
+        description: "Full SQRL CLI image reference (e.g. ghcr.io/datasqrl/cmd:pr-123 or datasqrl/cmd:dev). When set, overrides sqrl.Dockerfile. Dispatched runs never publish to Docker Hub."
         required: false
         default: ''
       correlation_id:
@@ -20,9 +20,6 @@ on:
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}-${{ inputs.correlation_id || github.run_id }}
   cancel-in-progress: true
-
-env:
-  TZ: 'America/Los_Angeles'
 
 jobs:
   build-and-push:
@@ -62,6 +59,43 @@ jobs:
             test_commands: |
               compile credit-card-views/creditcard_views-shared-package.json credit-card-views/creditcard_views-test-package.json
               test credit-card-views/creditcard_views-shared-package.json credit-card-views/creditcard_views-test-package.json
+
+          - example: getting-started-01
+            path: getting-started-examples/01_kafka_to_console
+            publish: false
+            test_commands: |
+              compile package.json
+          - example: getting-started-02
+            path: getting-started-examples/02_kafka_to_kafka
+            publish: false
+            test_commands: |
+              compile package.json
+          - example: getting-started-03
+            path: getting-started-examples/03_kafka_join
+            publish: false
+            test_commands: |
+              compile package.json
+          - example: getting-started-04
+            path: getting-started-examples/04_file_to_iceberg_test
+            publish: false
+            test_commands: |
+              compile package.json
+          - example: getting-started-05
+            path: getting-started-examples/05_kafka_to_iceberg_local_test
+            publish: false
+            test_commands: |
+              compile package.json
+          - example: getting-started-06
+            path: getting-started-examples/06_kafka_to_iceberg_glue_test
+            publish: false
+            # Glue needs real AWS resources at compile time, so CI compiles against a local catalog
+            test_commands: |
+              compile package.json local-catalog-package.json
+          - example: getting-started-07
+            path: getting-started-examples/07_schema_registry_kafka_to_kafka
+            publish: false
+            test_commands: |
+              compile package.json
 
           - example: healthcare-study-analytics
             path: healthcare-study
@@ -132,50 +166,6 @@ jobs:
               compile usertokens_test_package.json
               test usertokens_test_package.json
 
-          - example: canary-aggregation
-            path: test-jobs/aggregation-tests
-            tag: canary
-            test_commands: |
-              compile aggregation-test-package.json
-              compile aggregation-query-test-package.json
-              compile aggregation-query-test-iceberg-package.json
-              compile aggregation-query-subscription-test-package.json
-              compile mutation-iceberg-test-package.json
-
-          - example: canary-mutation
-            path: test-jobs/mutation-tests
-            tag: canary
-            test_commands: |
-              compile mutation-test-package.json
-
-          - example: canary-failures
-            path: test-jobs/failure-tests
-            tag: canary
-            test_commands: |
-              compile runtime-failing-connector-package.json
-              compile runtime-failing-udf-package.json
-
-          - example: canary-batch
-            path: test-jobs/batch-test
-            tag: canary
-            test_commands: |
-              compile simple-batch-test-package.json
-
-          - example: canary-scheduled-batch
-            path: test-jobs/scheduled-batch-test
-            tag: canary
-            test_commands: |
-              compile scheduled-batch-package.json
-              compile simple-scheduled-batch-package.json
-              compile minutely-batch-package.json
-
-          - example: canary-long-lived
-            path: test-jobs/long-lived
-            tag: canary
-            test_commands: |
-              compile long-lived-streaming-package.json
-              compile long-lived-batch-package.json
-
           - example: udf-jbang
             path: user-defined-function/jbang
             tag: udf-jbang
@@ -188,31 +178,26 @@ jobs:
             test_commands: |
               compile udf_maven_package.json
 
-    steps:
-    - uses: actions/checkout@v4
+    steps: &example-steps
+    - uses: actions/checkout@v7
 
     - name: Resolve SQRL image
       id: resolve-image
       run: |
-        if [ -n "${{ inputs.sqrl_image }}" ]; then
-          IMAGE="${{ inputs.sqrl_image }}"
-          PUBLISH=false
-        else
+        IMAGE="${{ inputs.sqrl_image }}"
+        if [ -z "$IMAGE" ]; then
           IMAGE=$(sed -n 's/^FROM //p' sqrl.Dockerfile)
-          PUBLISH=true
         fi
-        # Dependabot PRs get no Docker Hub secrets
-        if [ "${{ github.event.pull_request.user.login }}" = "dependabot[bot]" ]; then
+        # Only pushes to main publish to Docker Hub; PRs and dispatched runs build and test only
+        # Matrix entries with publish: false (the getting-started examples) are built and tested, never published
+        if [ "${{ github.event_name }}" = "push" ] && [ "${{ github.ref }}" = "refs/heads/main" ] && [ "${{ matrix.publish }}" != "false" ]; then
+          PUBLISH=true
+        else
           PUBLISH=false
         fi
         echo "image=$IMAGE" >> "$GITHUB_OUTPUT"
         echo "publish=$PUBLISH" >> "$GITHUB_OUTPUT"
         echo "Using SQRL image: $IMAGE (publish=$PUBLISH)"
-
-    - name: Setup Timezone
-      uses: szenius/set-timezone@v1.1
-      with:
-        timezoneLinux: "America/Los_Angeles"
 
     - name: Cache Docker images
       uses: ScribeMD/docker-cache@0.5.0
@@ -232,7 +217,7 @@ jobs:
       # Such PRs fall back to running without AWS credentials, which is fine for
       # every matrix entry except the S3-backed iceberg canary.
       continue-on-error: true
-      uses: aws-actions/configure-aws-credentials@v4
+      uses: aws-actions/configure-aws-credentials@v6
       with:
         role-to-assume: ${{ secrets.AWS_DEV_GITHUB_ACTION_ROLE }}
         aws-region: us-east-1
@@ -283,22 +268,22 @@ jobs:
 
     - name: Set up QEMU
       if: steps.resolve-image.outputs.publish == 'true'
-      uses: docker/setup-qemu-action@v2
+      uses: docker/setup-qemu-action@v4
 
     - name: Set up Docker Buildx
       if: steps.resolve-image.outputs.publish == 'true'
-      uses: docker/setup-buildx-action@v2
+      uses: docker/setup-buildx-action@v4
 
     - name: Login to Docker Hub
       if: steps.resolve-image.outputs.publish == 'true'
-      uses: docker/login-action@v2
+      uses: docker/login-action@v4
       with:
         username: ${{ secrets.DOCKER_USERNAME }}
         password: ${{ secrets.DOCKER_PASSWORD }}
 
     - name: Publish ${{ matrix.example }}
       if: steps.resolve-image.outputs.publish == 'true'
-      uses: docker/build-push-action@v3
+      uses: docker/build-push-action@v7
       with:
         context: ./${{ matrix.path }}
         file: ./${{ matrix.path }}/Dockerfile
@@ -306,11 +291,71 @@ jobs:
         tags: datasqrl/examples:${{ matrix.tag && matrix.tag != '' && matrix.tag || matrix.path }}
         platforms: linux/amd64,linux/arm64
 
+  test-jobs:
+    # Dependabot runs get no Actions secrets, so they can't assume the AWS role the S3-backed
+    # test jobs need. The test jobs run on every other PR, push and dispatch.
+    if: github.actor != 'dependabot[bot]'
+    runs-on: ubuntu-latest-4-cores
+    timeout-minutes: 30
+    permissions:
+      id-token: write
+      contents: read
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - example: canary-aggregation
+            path: test-jobs/aggregation-tests
+            tag: canary
+            test_commands: |
+              compile aggregation-test-package.json
+              compile aggregation-query-test-package.json
+              compile aggregation-query-test-iceberg-package.json
+              compile aggregation-query-subscription-test-package.json
+              compile mutation-iceberg-test-package.json
+
+          - example: canary-mutation
+            path: test-jobs/mutation-tests
+            tag: canary
+            test_commands: |
+              compile mutation-test-package.json
+
+          - example: canary-failures
+            path: test-jobs/failure-tests
+            tag: canary
+            test_commands: |
+              compile runtime-failing-connector-package.json
+              compile runtime-failing-udf-package.json
+
+          - example: canary-batch
+            path: test-jobs/batch-test
+            tag: canary
+            test_commands: |
+              compile simple-batch-test-package.json
+
+          - example: canary-scheduled-batch
+            path: test-jobs/scheduled-batch-test
+            tag: canary
+            test_commands: |
+              compile scheduled-batch-package.json
+              compile simple-scheduled-batch-package.json
+              compile minutely-batch-package.json
+
+          - example: canary-long-lived
+            path: test-jobs/long-lived
+            tag: canary
+            test_commands: |
+              compile long-lived-streaming-package.json
+              compile long-lived-batch-package.json
+
+    steps: *example-steps
+
   lint-graphql:
     name: Lint GraphQL Schemas
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - name: Lint GraphQL schemas
         run: |
@@ -350,7 +395,7 @@ jobs:
           - iceberg-data-deduplication/udfs
           - user-defined-function/maven-project/myjavafunction
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - uses: actions/cache@v6
         with:
@@ -368,7 +413,7 @@ jobs:
     name: Python requirements
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - name: Install requirements.txt
         run: |
@@ -377,14 +422,16 @@ jobs:
             pip install --root-user-action=ignore --disable-pip-version-check -r requirements.txt
 
   build:
-    needs: [build-and-push, lint-graphql, maven, python-requirements]
+    needs: [build-and-push, test-jobs, lint-graphql, maven, python-requirements]
     runs-on: ubuntu-latest
     if: always()
     steps:
       - name: Fail if any build job failed
+        env:
+          NEEDS: ${{ toJson(needs) }}
         run: |
-          failed=$(jq -r '.[] | select(.result=="failure")' <<< '${{ toJson(needs) }}' | wc -l)
-          if [[ "$failed" -gt 0 ]]; then
-            echo "::error ::${failed} matrix job(s) failed"
+          failed=$(jq -r 'to_entries[] | select(.value.result == "failure") | .key' <<< "$NEEDS" | paste -sd, -)
+          if [[ -n "$failed" ]]; then
+            echo "::error ::Failed jobs: ${failed}"
             exit 1
           fi

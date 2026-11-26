@@ -14,19 +14,30 @@
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
 
         <slf4j.version>1.7.36</slf4j.version>
-        <log4j.version>2.25.5</log4j.version>
-        <lombok.version>1.18.32</lombok.version>
-        <junit.jupiter.version>5.10.2</junit.jupiter.version>
-        <guava.version>33.1.0-jre</guava.version>
-        <jackson.version>2.18.12</jackson.version>
-        <picocli.version>4.7.5</picocli.version>
+        <log4j.version>2.26.1</log4j.version>
+        <lombok.version>1.18.48</lombok.version>
+        <junit-bom.version>6.1.3</junit-bom.version>
+        <guava.version>33.8.0-jre</guava.version>
+        <jackson.version>2.23.0</jackson.version>
+        <picocli.version>4.7.7</picocli.version>
         <commons-config.version>2.15.1</commons-config.version>
-        <datafaker.version>2.4.1</datafaker.version>
-        <maven-surefire-plugin.version>2.22.2</maven-surefire-plugin.version>
-        <junit-jupiter-engine.version>5.6.2</junit-jupiter-engine.version>
-        <maven-jar-plugin.version>3.1.0</maven-jar-plugin.version>
-        <maven-assembly-plugin.version>3.7.1</maven-assembly-plugin.version>
+        <datafaker.version>2.7.0</datafaker.version>
+        <maven-surefire-plugin.version>3.6.1</maven-surefire-plugin.version>
+        <maven-jar-plugin.version>3.5.1</maven-jar-plugin.version>
+        <maven-assembly-plugin.version>3.8.0</maven-assembly-plugin.version>
     </properties>
+
+    <dependencyManagement>
+        <dependencies>
+            <dependency>
+                <groupId>org.junit</groupId>
+                <artifactId>junit-bom</artifactId>
+                <version>${junit-bom.version}</version>
+                <type>pom</type>
+                <scope>import</scope>
+            </dependency>
+        </dependencies>
+    </dependencyManagement>
 
     <dependencies>
         <dependency>
@@ -94,13 +105,11 @@
         <dependency>
             <groupId>org.junit.jupiter</groupId>
             <artifactId>junit-jupiter-engine</artifactId>
-            <version>${junit.jupiter.version}</version>
             <scope>test</scope>
         </dependency>
         <dependency>
             <groupId>org.junit.jupiter</groupId>
             <artifactId>junit-jupiter-params</artifactId>
-            <version>${junit.jupiter.version}</version>
             <scope>test</scope>
         </dependency>
     </dependencies>
@@ -110,13 +119,6 @@
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-surefire-plugin</artifactId>
                 <version>${maven-surefire-plugin.version}</version>
-                <dependencies>
-                    <dependency>
-                        <groupId>org.junit.jupiter</groupId>
-                        <artifactId>junit-jupiter-engine</artifactId>
-                        <version>${junit-jupiter-engine.version}</version>
-                    </dependency>
-                </dependencies>
             </plugin>
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
